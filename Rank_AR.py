@@ -16,6 +16,7 @@ sys.setdefaultencoding('utf-8')
 
 connectdrive = 'DRIVER={SQL Server};SERVER=CTD-RADAR-STG.corp.emc.com\STAGING;DATABASE=Remedy;UID=reporter;PWD=reporter'
 du_list = ['OFFLINE', 'OFF LINE', 'BLOCKED THREAD', 'RECOVERY', 'INACCESSIBLE', ' DU ']
+sp_fault_list = ['REBOOT', 'PANIC']
 
 # process to handle the CI list in number of threads
 def process(items, cursor, ci_list, start, end):
@@ -50,6 +51,7 @@ def split_processing(items, cursor, ci_list, num_splits=10):
 def cihandler(item, cursor, ci_list):
     cirecord_dict = dict()
     duflag = 0
+    spfaultflag = 0
 
     print ("Processing the CI " + item.ENTRY_ID + "\n")
     summary = str(item.SUMMARY)
@@ -60,6 +62,9 @@ def cihandler(item, cursor, ci_list):
 
     if any(du_word in summary.upper() for du_word in du_list):
         duflag = 1
+
+    if any(sp_fault_word in summary.upper() for sp_fault_word in sp_fault_list):
+        spfaultflag = 1
 
     cirecord_dict = {
         "CI": str(item.ENTRY_ID),
@@ -75,9 +80,13 @@ def cihandler(item, cursor, ci_list):
         "Major_Area": "",
         "Product_Area": ""
     }
+
     getrelatedarinfo(cursor, item.ENTRY_ID, cirecord_dict)
     if 1 == cirecord_dict["DU"]:
         cirecord_dict["Score"] *= 50
+
+    if 1 == spfaultflag:
+        cirecord_dict["Score"] *= 5
 
     if cirecord_dict["Major_Area"] == "":
         cirecord_dict["Major_Area"] = item.MAJOR_AREA
