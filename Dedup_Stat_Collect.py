@@ -6,8 +6,6 @@ from functools import reduce
 import multiprocessing as mp
 import time
 
-#test_log = 'https://easyjenkins.service.baas.darkside.cec.lab.emc.com/logs/mrqe/DEBUG/MRQE_Vitality/Cycle_2018-21/OB-D1356_DedupIo/logs/45_1528232975/TestCases/OB-D1356_DedupIo/TestCases/stats_collection_BLOCK_IO_TOOL_iSCSI_2018_06_05_17-42-13/'
-
 
 def get_stat_url_dict(stat_files, log_url):
     stat_url_dict = {}
@@ -60,11 +58,11 @@ def get_vbm_stat(vbm_urls_dict):
 
         p = re.compile(r"ILD Stats \*+\nTotal Attempts: (\d+)")
         m = p.search(temp_source)
-        ild_total = 0 if m == None else m.group(1)
+        ild_total = 0 if m is None else m.group(1)
 
         p1 = re.compile(r"Total deduped AUs: (\d+)")
         m1 = p1.search(temp_source)
-        ild_match = 0 if m1 == None else m1.group(1)
+        ild_match = 0 if m1 is None else m1.group(1)
 
         ild_stat_dict[index] = [ild_total, ild_match]
 
@@ -81,7 +79,7 @@ def get_tdc_stat(tdc_urls_dict):
 
         p = re.compile(r"-\sAddSucceeded\s+(\d+)")
         m = p.search(temp_source)
-        new_sha_dict[index] = 0 if m == None else m.group(1)
+        new_sha_dict[index] = 0 if m is None else m.group(1)
 
     return new_sha_dict
 
@@ -94,11 +92,21 @@ def get_pfdc_stat(pfdc_urls_dict):
         temp_source = temp_sock.read()
         temp_sock.close()
 
-        p = re.compile(r"bypassOK\s+(\d+)")
+        p = re.compile(r"Total bypassOK\s+(\d+)")
         m = p.search(temp_source)
-        bypass_dict[index] = 0 if m == None else m.group(1)
+        bypass_dict[index] = 0 if m is None else m.group(1)
 
     return bypass_dict
+
+
+def get_ilc_ratio_stat(log_source):
+    p = re.compile(r"RatioDist::ILCStatDump.*IlcCmprLibConsecutiveFailureDist:", re.DOTALL)
+    m = p.search(log_source)
+    sub_source = m.group(0)
+
+    ilc_ratio_list = re.findall(r"(\d+)\n", sub_source)
+
+    return ilc_ratio_list
 
 
 def get_ilc_stat(ilc_urls_dict):
@@ -111,21 +119,24 @@ def get_ilc_stat(ilc_urls_dict):
 
         p = re.compile(r"IlcTotalAUs::ILCStatDump:\s+(\d+)")
         m = p.search(temp_source)
-        ilc_total = 0 if m == None else m.group(1)
+        ilc_total = 0 if m is None else m.group(1)
 
         p1 = re.compile(r"IlcCmprLibTotalAUsFailedNoSaving::ILCStatDump:\s+(\d+)")
         m1 = p1.search(temp_source)
-        ilc_no_saving = 0 if m1 == None else m1.group(1)
+        ilc_no_saving = 0 if m1 is None else m1.group(1)
 
         p2 = re.compile(r"ILPDTotalComeIn::ILCStatDump:\s+(\d+)")
         m2 = p2.search(temp_source)
-        ilpd_total = 0 if m2 == None else m2.group(1)
+        ilpd_total = 0 if m2 is None else m2.group(1)
 
         p3 = re.compile(r"ILPDBitwiseCompareSuccess::ILCStatDump:\s+(\d+)")
         m3 = p3.search(temp_source)
-        ilpd_match = 0 if m3 == None else m3.group(1)
+        ilpd_match = 0 if m3 is None else m3.group(1)
+
+        ratio_list = get_ilc_ratio_stat(temp_source)
 
         ilc_stat_dict[index] = [ilc_total, ilc_no_saving, ilpd_total, ilpd_match]
+        ilc_stat_dict[index].extend(ratio_list)
 
     return ilc_stat_dict
 
@@ -144,7 +155,8 @@ def create_stat_dataframe(test_log_url):
 
     ilc_df = pd.DataFrame(get_ilc_stat((all_stat_urls['ILC'])).items(), columns=['index', 'ILC'])
     ilc_detailed_df = pd.DataFrame(ilc_df.ILC.values.tolist(), index=ilc_df.index)
-    ilc_detailed_df.columns = ['ILCTotal', 'ILCNoSaving', 'ILPDTotal', 'ILPDMatch']
+    ilc_detailed_df.columns = ['ILCTotal', 'ILCNoSaving', 'ILPDTotal', 'ILPDMatch', '0-10', '10-20', '20-30', '30-40',
+                               '40-50', '50-60', '60-70', '70-80', '80-90', '90-100']
     ilc_detailed_df['index'] = ilc_df['index']
 
     tdc_df = pd.DataFrame(get_tdc_stat(all_stat_urls['TDC']).items(), columns=['index', 'NewSHA'])
@@ -159,7 +171,6 @@ def create_stat_dataframe(test_log_url):
 
 
 def read_log_from_excel(filepath):
-    stat_urls = []
     df = pd.read_excel(filepath, header=None, sheet_name=0, usecols='C')
     stat_urls = df.values.T[0].tolist()
     return stat_urls
