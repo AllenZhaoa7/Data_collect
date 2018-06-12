@@ -4,6 +4,8 @@ import urllib
 import pandas as pd
 from functools import reduce
 import multiprocessing as mp
+import Queue
+import threading
 import time
 
 
@@ -141,7 +143,7 @@ def get_ilc_stat(ilc_urls_dict):
     return ilc_stat_dict
 
 
-def create_stat_dataframe(test_log_url):
+def create_stat_dataframe(test_log_url, queue):
     sock = urllib.urlopen(test_log_url)
     html_source = sock.read()
     sock.close()
@@ -167,7 +169,7 @@ def create_stat_dataframe(test_log_url):
     all_stat_df = reduce(lambda left, right: pd.merge(left, right, on='index'), df_list)
     all_stat_df.set_index('index', inplace=True)
 
-    return all_stat_df
+    queue.put(all_stat_df)
 
 
 def read_log_from_excel(filepath):
@@ -176,31 +178,51 @@ def read_log_from_excel(filepath):
     return stat_urls
 
 
+def log_process(log_item):
+    print "Processing the log of: " + log_item
+
+    match = re.search('\d{4}_\d{2}_\d{2}_\d{2}-\d{2}-\d{2}', log_item)
+    test_date = datetime.datetime.strptime(match.group(), '%Y_%m_%d_%H-%M-%S')
+    test_date_str = test_date.strftime('%Y_%m_%d_%H-%M-%S')
+
+    spa_log_url = log_item + 'spa/'
+    spb_log_url = log_item + 'spb/'
+
+    sps_logs = [spa_log_url, spb_log_url]
+
+    thread_list = []
+    results = []
+    queue = Queue.Queue()
+
+    for sp_log in sps_logs:
+        t = threading.Thread(target=create_stat_dataframe, args=[sp_log,queue])
+        thread_list.append(t)
+
+    for item in thread_list:
+        item.start()
+        item.join()
+        results.append(queue.get())
+
+    sps = ['spa', 'spb']
+    writer = pd.ExcelWriter(test_date_str + '_output.xlsx')
+    for sp, data in zip(sps, results):
+        data.to_excel(writer, sp)
+
+    writer.save()
+    writer.close()
+
+
 if __name__ == '__main__':
+    st = time.time()
     url_list = []
     log_list_file = 'C:\Users\zhaoa7\Documents\TA\Nighthawk\Dedup\DedupAdvanceTest\status_log_list.xlsx'
     url_list = read_log_from_excel(log_list_file)
 
-    for url_item in url_list:
-        print "Processing the log of: " + url_item
-        match = re.search('\d{4}_\d{2}_\d{2}_\d{2}-\d{2}-\d{2}', url_item)
-        test_date = datetime.datetime.strptime(match.group(), '%Y_%m_%d_%H-%M-%S')
-        test_date_str = test_date.strftime('%Y_%m_%d_%H-%M-%S')
+    log_pool = mp.Pool(processes=len(url_list))
+    log_pool.map(log_process, url_list)
 
-        spa_log_url = url_item + 'spa/'
-        spb_log_url = url_item + 'spb/'
-        sps_logs = [spa_log_url, spb_log_url]
+    et = time.time()
+    total_time = et - st
+    print "Total time: " + str(total_time)
 
-        start_time = time.time()
-        pool = mp.Pool(processes=2)
-        results = pool.map(create_stat_dataframe, sps_logs)
-        end_time = time.time()
-        print (end_time - start_time)
 
-        sps = ['spa', 'spb']
-        writer = pd.ExcelWriter(test_date_str + '_output.xlsx')
-        for sp, data in zip(sps, results):
-            data.to_excel(writer, sp)
-
-        writer.save()
-        writer.close()
