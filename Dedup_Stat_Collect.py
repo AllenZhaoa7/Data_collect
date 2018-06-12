@@ -143,7 +143,7 @@ def get_ilc_stat(ilc_urls_dict):
     return ilc_stat_dict
 
 
-def create_stat_dataframe(test_log_url, queue):
+def create_stat_dataframe(test_log_url):
     sock = urllib.urlopen(test_log_url)
     html_source = sock.read()
     sock.close()
@@ -169,7 +169,7 @@ def create_stat_dataframe(test_log_url, queue):
     all_stat_df = reduce(lambda left, right: pd.merge(left, right, on='index'), df_list)
     all_stat_df.set_index('index', inplace=True)
 
-    queue.put(all_stat_df)
+    return all_stat_df
 
 
 def read_log_from_excel(filepath):
@@ -178,30 +178,23 @@ def read_log_from_excel(filepath):
     return stat_urls
 
 
-def log_process(log_item):
-    print "Processing the log of: " + log_item
-
-    match = re.search('\d{4}_\d{2}_\d{2}_\d{2}-\d{2}-\d{2}', log_item)
+def log_multiprocess(url_item):
+    curr_proc = mp.current_process()
+    curr_proc.daemon = False
+    print "Processing the log of: " + url_item
+    match = re.search('\d{4}_\d{2}_\d{2}_\d{2}-\d{2}-\d{2}', url_item)
     test_date = datetime.datetime.strptime(match.group(), '%Y_%m_%d_%H-%M-%S')
     test_date_str = test_date.strftime('%Y_%m_%d_%H-%M-%S')
 
-    spa_log_url = log_item + 'spa/'
-    spb_log_url = log_item + 'spb/'
-
+    spa_log_url = url_item + 'spa/'
+    spb_log_url = url_item + 'spb/'
     sps_logs = [spa_log_url, spb_log_url]
 
-    thread_list = []
-    results = []
-    queue = Queue.Queue()
-
-    for sp_log in sps_logs:
-        t = threading.Thread(target=create_stat_dataframe, args=[sp_log,queue])
-        thread_list.append(t)
-
-    for item in thread_list:
-        item.start()
-        item.join()
-        results.append(queue.get())
+    start_time = time.time()
+    pool = mp.Pool(processes=2)
+    results = pool.map(create_stat_dataframe, sps_logs)
+    end_time = time.time()
+    print (end_time - start_time)
 
     sps = ['spa', 'spb']
     writer = pd.ExcelWriter(test_date_str + '_output.xlsx')
@@ -219,7 +212,7 @@ if __name__ == '__main__':
     url_list = read_log_from_excel(log_list_file)
 
     log_pool = mp.Pool(processes=len(url_list))
-    log_pool.map(log_process, url_list)
+    log_pool.map(log_multiprocess, url_list)
 
     et = time.time()
     total_time = et - st
