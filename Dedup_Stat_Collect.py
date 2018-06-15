@@ -40,8 +40,7 @@ def get_all_stat_urls(html_info, log_url):
     all_stat_url_dict = {}
 
     vbm_stat_files = re.findall(r'>\d+_vbm_stats_.*<', html_info)
-    # get rid of file 0_xxx, which is used to reset the stat data
-    vbm_stat_files.pop(0)
+    vbm_stat_files.pop(0)       # get rid of file 0_xxx, which is used to reset the stat data
 
     tdc_stat_files = re.findall(r'>\d+_tdc_dumpStats_.*<', html_info)
     tdc_stat_files.pop(0)
@@ -77,8 +76,9 @@ def read_data_file(data_url, data_source_dict, index):
         data_source = urllib.urlopen(data_url).read()
         logging.info("Requested..." + data_url)
         data_source_dict[index] = data_source
-    except:
-        logging.error('Error with URL check!')
+    except Exception as ex:
+        # noinspection PyTypeChecker
+        logging.error('Error with URL check!' + ex)
 
 
 def get_all_data_source(urls_dict):
@@ -89,6 +89,8 @@ def get_all_data_source(urls_dict):
     """
     threads = []
     data_sources = {}
+
+    # Start one thread per url
     for i in range(len(urls_dict.keys())):
         process = Thread(target=read_data_file, args=[urls_dict[i+1], data_sources, i+1])
         process.start()
@@ -103,11 +105,10 @@ def get_all_data_source(urls_dict):
 def get_vbm_stat(vbm_urls_dict):
     """
     For each vbm file, grab the ILD total and the ILD match data
-    :param vbm_urls_dict:
-    :return: ild_stat_dict
+    :param vbm_urls_dict: the dict store the vmb file url
+    :return: ild_stat_dict: the dict store the ILD related stat data
     """
     ild_stat_dict = {}
-
     source_data_dict = get_all_data_source(vbm_urls_dict)
 
     for index, vbm_source in source_data_dict.items():
@@ -125,8 +126,12 @@ def get_vbm_stat(vbm_urls_dict):
 
 
 def get_tdc_stat(tdc_urls_dict):
+    """
+    For each tdc file, we will get the New SHA entry from AddSucceeded
+    :param tdc_urls_dict: the dict store the tdc file url
+    :return: new_sha_dict: the dict store the tdc data
+    """
     new_sha_dict = {}
-
     source_data_dict = get_all_data_source(tdc_urls_dict)
 
     for index, tdc_source in source_data_dict.items():
@@ -139,8 +144,12 @@ def get_tdc_stat(tdc_urls_dict):
 
 
 def get_pfdc_stat(pfdc_urls_dict):
+    """
+    For each PFDC file, get the PFDC bypass data
+    :param pfdc_urls_dict: the dict store the pfdc file url
+    :return: bypass_dict: the dict store the bypass data
+    """
     bypass_dict = {}
-
     source_data_dict = get_all_data_source(pfdc_urls_dict)
 
     for index, pfdc_source in source_data_dict.items():
@@ -152,18 +161,29 @@ def get_pfdc_stat(pfdc_urls_dict):
 
 
 def get_ilc_ratio_stat(log_source):
+    """
+    Get the compression ratio data for 0-10, 10-20,,,90-100
+    0-10 means the size of the data after compression
+    :param log_source: the ilc source data
+    :return: ilc_ratio_list: the list contains the data for the 10 items for a single ilc data file
+    """
+    # Get the ILC RatioDist from ilc file first
     p = re.compile(r"RatioDist::ILCStatDump.*IlcCmprLibConsecutiveFailureDist:", re.DOTALL)
     m = p.search(log_source)
     sub_source = m.group(0)
 
-    ilc_ratio_list = re.findall(r"(\d+)\n", sub_source)
+    ilc_ratio_list = re.findall(r"(\d+)\n", sub_source)   # Find and put the 10 ratio data into a list
 
     return ilc_ratio_list
 
 
 def get_ilc_stat(ilc_urls_dict):
+    """
+    For each ilc file, get ILC total, ILC no saving (compress < 1%), ILPD total, ILPD match and ILC ratio detail
+    :param ilc_urls_dict: the dict store ilc file url
+    :return: ilc_stat_dict: the dict store ilc related stat data
+    """
     ilc_stat_dict = {}
-
     source_data_dict = get_all_data_source(ilc_urls_dict)
 
     for index, ilc_source in source_data_dict.items():
@@ -241,6 +261,7 @@ def read_log_from_excel(file_path):
     :param file_path:
     :return: stat_urls
     """
+    # assume the format of the spreadsheet is fixed
     df = pd.read_excel(file_path, header=None, sheet_name=0, usecols='C')
     if df.empty:
         print "Nothing in the spreadsheet, please check and run again."
@@ -255,7 +276,6 @@ def log_multiprocess(url_item):
     The stat data will be collected from both spa and spb
     The stat data comes from multiple log files
     """
-
     # enable sub process creation for daemonic
     curr_proc = mp.current_process()
     curr_proc.daemon = False
